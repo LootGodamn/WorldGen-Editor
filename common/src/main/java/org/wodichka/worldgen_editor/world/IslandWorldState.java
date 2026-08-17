@@ -148,16 +148,16 @@ public final class IslandWorldState {
         biomeRegistry = biomes;
         CAVE_POOL_CACHE.clear();
         coldFallback1 = resolveBiome(biomes, "terralith:amethyst_canyon");
-        coldFallback2 = resolveBiome(biomes, "terralith:amethyst_rainforest");
-        coldFallback3 = resolveBiome(biomes, "terralith:mirage_isles");
+        coldFallback2 = resolveBiome(biomes, "terralith:moonlight_valley");
+        coldFallback3 = resolveBiome(biomes, "terralith:amethyst_rainforest");
 
         temperateFallback1 = resolveBiome(biomes, "terralith:moonlight_grove");
         temperateFallback2 = resolveBiome(biomes, "terralith:moonlight_valley");
         temperateFallback3 = resolveBiome(biomes, "terralith:mirage_isles");
 
-        warmFallback1 = resolveBiome(biomes, "terralith:ashen_savanna");
-        warmFallback2 = resolveBiome(biomes, "terralith:caldera");
-        warmFallback3 = resolveBiome(biomes, "terralith:gravel_desert");
+        warmFallback1 = resolveBiome(biomes, "terralith:moonlight_valley");
+        warmFallback2 = resolveBiome(biomes, "terralith:moonlight_grove");
+        warmFallback3 = resolveBiome(biomes, "terralith:mirage_isles");
         deeperDarkerDeeplands = resolveBiome(biomes, "deeperdarker:deeplands");
         deeperDarkerEchoingForest = resolveBiome(biomes, "deeperdarker:echoing_forest");
         deeperDarkerBloomingCaverns = resolveBiome(biomes, "deeperdarker:blooming_caverns");
