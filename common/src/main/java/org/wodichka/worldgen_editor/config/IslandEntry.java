@@ -9,6 +9,7 @@ public record IslandEntry(
         List<String> excludedBiomes,
         IslandTemperature temperature,
         int biomePatchSize,
+        List<String> caveBiomePool,
         IslandNoise noise,
         double xDivisor,
         double zDivisor,
@@ -31,5 +32,6 @@ public record IslandEntry(
 ) {
     public IslandEntry {
         excludedBiomes = List.copyOf(excludedBiomes);
+        caveBiomePool = List.copyOf(caveBiomePool);
     }
 }

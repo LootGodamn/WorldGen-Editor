@@ -63,7 +63,9 @@ public final class IslandBiomeSource extends BiomeSource {
         return Stream.of(
                         delegate.possibleBiomes().stream(),
                         IslandWorldState.oceanBiomes().stream(),
-                        IslandWorldState.fallbackLandBiomes().stream()
+                        IslandWorldState.fallbackLandBiomes().stream(),
+                        IslandWorldState.deepDarkSubBiomes().stream(),
+                        IslandWorldState.caveBiomePoolBiomes().stream()
                 )
                 .flatMap(stream -> stream)
                 .distinct();
@@ -72,14 +74,27 @@ public final class IslandBiomeSource extends BiomeSource {
     @Override
     public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ, Climate.Sampler sampler) {
         IslandMask mask = IslandWorldState.mask();
+        Climate.TargetPoint climate = sampler.sample(quartX, quartY, quartZ);
+        double temperature = Climate.unquantizeCoord(climate.temperature());
+        double humidity = Climate.unquantizeCoord(climate.humidity());
+
         if (mask.isEmpty()) {
-            return delegate.getNoiseBiome(quartX, quartY, quartZ, sampler);
+            Holder<Biome> plainBiome = delegate.getNoiseBiome(quartX, quartY, quartZ, sampler);
+            return IslandWorldState.substituteDeepDarkSubBiome(plainBiome, temperature, humidity);
         }
 
         int blockX = QuartPos.toBlock(quartX);
         int blockZ = QuartPos.toBlock(quartZ);
         IslandMask.SampleInfo sample = mask.sampleInfo(blockX, blockZ);
         Holder<Biome> delegateBiome = delegate.getNoiseBiome(quartX, quartY, quartZ, sampler);
+        Holder<Biome> pooledCaveBiome = IslandWorldState.caveBiomeFromPool(delegateBiome,
+                sample.landSource() != null ? sample.landSource() : sample.archipelagoSource(),
+                blockX, blockZ);
+        if (pooledCaveBiome != null) {
+            delegateBiome = pooledCaveBiome;
+        } else {
+            delegateBiome = IslandWorldState.substituteDeepDarkSubBiome(delegateBiome, temperature, humidity);
+        }
         if (sample.value() < IslandTerrainHooks.FULL_OCEAN_MASK) {
             if (sample.oceanSource() == null && sample.archipelagoSource() == null && sample.landSource() == null) {
                 Holder<Biome> outerOcean = IslandWorldState.outerOceanBiome();

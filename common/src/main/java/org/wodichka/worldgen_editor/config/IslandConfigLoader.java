@@ -272,6 +272,7 @@ public final class IslandConfigLoader {
                     parseBiomeSelectors(optionalArray(entry, "exclude_biomes", path), path + ".exclude_biomes"),
                     parseTemperature(optionalString(entry, firstPresent(entry, "temperature", "climate"), "standard", path), path),
                     optionalRangeInt(entry, path, DEFAULT_BIOME_PATCH_SIZE, MIN_BIOME_PATCH_SIZE, MAX_BIOME_PATCH_SIZE, "biome_patch_size"),
+                    parseCaveBiomePool(optionalArray(entry, "cave_biome_pool", path), path + ".cave_biome_pool"),
                     new IslandNoise(
                             amplitudes,
                             noise == null ? name : optionalString(noise, "seed", name, path + ".noise"),
@@ -300,6 +301,28 @@ public final class IslandConfigLoader {
         }
 
         return new IslandConfig(enabled, outerOcean, parsedEntries);
+    }
+
+    private static List<String> parseCaveBiomePool(JsonArray array, String path) throws IslandConfigException {
+        if (array == null) {
+            return List.of();
+        }
+
+        List<String> pool = new ArrayList<>();
+        for (int index = 0; index < array.size(); index++) {
+            JsonElement element = array.get(index);
+            if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+                throw new IslandConfigException(path + "[" + index + "] must be a biome id string");
+            }
+            String biomeId = element.getAsString().trim();
+            if (!isValidBiomeId(biomeId)) {
+                throw new IslandConfigException(path + "[" + index + "] must be a biome id like minecraft:deep_dark");
+            }
+            if (!pool.contains(biomeId)) {
+                pool.add(biomeId);
+            }
+        }
+        return List.copyOf(pool);
     }
 
     private static List<String> parseBiomeSelectors(JsonArray array, String path) throws IslandConfigException {

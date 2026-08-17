@@ -91,9 +91,10 @@ public final class IslandMask {
     }
 
     public record SourceInfo(String name, IslandEntryType type, String parentName, long climateSeed, List<String> excludedBiomes,
-                             IslandTemperature temperature, int biomePatchSize) {
+                             IslandTemperature temperature, int biomePatchSize, List<String> caveBiomePool) {
         public SourceInfo {
             excludedBiomes = List.copyOf(excludedBiomes);
+            caveBiomePool = List.copyOf(caveBiomePool);
         }
     }
 
@@ -171,7 +172,8 @@ public final class IslandMask {
                 mix(worldSeed, stableStringSeed(entry.noise().seed())),
                 entry.excludedBiomes(),
                 entry.temperature(),
-                entry.biomePatchSize()
+                entry.biomePatchSize(),
+                entry.caveBiomePool()
         );
     }
 

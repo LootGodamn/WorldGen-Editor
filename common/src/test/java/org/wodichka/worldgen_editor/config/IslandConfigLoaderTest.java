@@ -22,6 +22,8 @@ public final class IslandConfigLoaderTest {
         rejectsInvalidBiomeSelector();
         parsesBiomeExclusions();
         parsesTemperatureAndBiomePatchSize();
+        parsesCaveBiomePool();
+        rejectsInvalidCaveBiomePool();
         parsesStandardTemperatureAliases();
         rejectsInvalidTemperatureAndPatchSize();
         rejectsInvalidArchipelagoRanges();
@@ -254,6 +256,46 @@ public final class IslandConfigLoaderTest {
         assertTrue(config.entries().getFirst().temperature() == IslandTemperature.WARM, "temperature should parse");
         assertTrue(config.entries().getFirst().biomePatchSize() == 1024, "biome_patch_size should parse");
         assertTrue(config.entries().get(1).temperature() == IslandTemperature.COLD, "climate alias should parse");
+    }
+
+    private static void parsesCaveBiomePool() throws Exception {
+        IslandConfig config = IslandConfigLoader.parse(JsonParser.parseString("""
+                {
+                  "entries": [
+                    {
+                      "x": 0,
+                      "z": 0,
+                      "radius": 100,
+                      "cave_biome_pool": [
+                        "minecraft:deep_dark",
+                        "terralith:cave/crystal_caves"
+                      ]
+                    },
+                    {
+                      "x": 300,
+                      "z": 0,
+                      "radius": 100
+                    }
+                  ]
+                }"""));
+
+        assertTrue(config.entries().getFirst().caveBiomePool().size() == 2, "cave_biome_pool should parse biome ids");
+        assertTrue("minecraft:deep_dark".equals(config.entries().getFirst().caveBiomePool().getFirst()), "cave_biome_pool should preserve biome ids");
+        assertTrue(config.entries().get(1).caveBiomePool().isEmpty(), "omitted cave_biome_pool should preserve normal cave generation");
+    }
+
+    private static void rejectsInvalidCaveBiomePool() {
+        assertThrows(() -> IslandConfigLoader.parse(JsonParser.parseString("""
+                {
+                  "entries": [
+                    {
+                      "x": 0,
+                      "z": 0,
+                      "radius": 100,
+                      "cave_biome_pool": ["#minecraft:is_cave"]
+                    }
+                  ]
+                }""")), "cave_biome_pool must contain biome ids, not tags");
     }
 
     private static void parsesStandardTemperatureAliases() throws Exception {

@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public final class IslandWorldState {
     private static final Logger LOGGER = LoggerFactory.getLogger(Worldgen_editor.MOD_ID);
@@ -65,12 +66,44 @@ public final class IslandWorldState {
     private static volatile Holder<Biome> savannaBiome;
     private static volatile Holder<Biome> jungleBiome;
     private static volatile Holder<Biome> desertBiome;
+
+    private static volatile Holder<Biome> coldFallback1;
+    private static volatile Holder<Biome> coldFallback2;
+    private static volatile Holder<Biome> coldFallback3;
+
+    private static volatile Holder<Biome> temperateFallback1;
+    private static volatile Holder<Biome> temperateFallback2;
+    private static volatile Holder<Biome> temperateFallback3;
+
+    private static volatile Holder<Biome> warmFallback1;
+    private static volatile Holder<Biome> warmFallback2;
+    private static volatile Holder<Biome> warmFallback3;
+
+    // Deeper and Darker sub-biomes, placed directly by WGE using the same temperature/humidity
+    // windows as the mod's own data/ddoverworld/biolith/biome_placement.json. This does not
+    // depend on Biolith's own placement mixin reaching WGE's delegate biome source, because it
+    // doesn't reliably: WGE's IslandBiomeSource sits between the dimension and the vanilla
+    // multi_noise delegate, and Biolith's LevelStem-level substitution never sees past it, so
+    // Deep Dark reaches WGE unmodified and Deeper and Darker's biomes never appear otherwise.
+    private static volatile Holder<Biome> deeperDarkerDeeplands;
+    private static volatile Holder<Biome> deeperDarkerEchoingForest;
+    private static volatile Holder<Biome> deeperDarkerBloomingCaverns;
+    private static volatile Holder<Biome> deeperDarkerOvercastColumns;
+    private static final List<DeepDarkSubBiome> DEEP_DARK_SUB_BIOMES = List.of(
+            new DeepDarkSubBiome(() -> deeperDarkerDeeplands, -0.65D, -0.35D, -0.65D, -0.35D),
+            new DeepDarkSubBiome(() -> deeperDarkerEchoingForest, 0.46D, 0.76D, 0.25D, 0.55D),
+            new DeepDarkSubBiome(() -> deeperDarkerBloomingCaverns, -0.78D, -0.48D, 0.38D, 0.68D),
+            new DeepDarkSubBiome(() -> deeperDarkerOvercastColumns, 0.55D, 0.85D, -0.45D, -0.15D)
+    );
     private static final Set<String> EXCLUSION_WARNINGS = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentHashMap<List<String>, List<Holder<Biome>>> CAVE_POOL_CACHE = new ConcurrentHashMap<>();
     private static final List<TagKey<Biome>> OCEAN_TAGS = List.of(tag("minecraft:is_ocean"), tag("c:is_ocean"), tag("forge:is_ocean"));
     private static final List<TagKey<Biome>> COLD_TAGS = List.of(tag("c:is_cold"), tag("forge:is_cold"), tag("c:cold"), tag("forge:cold"));
     private static final List<TagKey<Biome>> HOT_TAGS = List.of(tag("c:is_hot"), tag("forge:is_hot"), tag("c:is_warm"), tag("forge:is_warm"), tag("c:hot"), tag("forge:hot"));
     private static final List<TagKey<Biome>> SNOWY_TAGS = List.of(tag("c:is_snowy"), tag("forge:is_snowy"), tag("c:snowy"), tag("forge:snowy"));
     private static final List<TagKey<Biome>> TEMPERATE_TAGS = List.of(tag("c:is_temperate"), tag("forge:is_temperate"), tag("c:temperate"), tag("forge:temperate"));
+    private static final List<TagKey<Biome>> CAVE_TAGS = List.of(tag("c:cave"), tag("forge:cave"), tag("c:is_cave"), tag("forge:is_cave"), tag("c:underground"), tag("forge:underground"));
+    private static final Set<String> CAVE_BIOME_NAMESPACES = Set.of("deeperdarker");
 
     private IslandWorldState() {
     }
@@ -111,6 +144,22 @@ public final class IslandWorldState {
         enabled = effectiveEnabled();
         Registry<Biome> biomes = server.registryAccess().registryOrThrow(Registries.BIOME);
         biomeRegistry = biomes;
+        CAVE_POOL_CACHE.clear();
+        coldFallback1 = resolveBiome(biomes, "terralith:amethyst_canyon");
+        coldFallback2 = resolveBiome(biomes, "terralith:amethyst_rainforest");
+        coldFallback3 = resolveBiome(biomes, "terralith:mirage_isles");
+
+        temperateFallback1 = resolveBiome(biomes, "terralith:moonlight_grove");
+        temperateFallback2 = resolveBiome(biomes, "terralith:moonlight_valley");
+        temperateFallback3 = resolveBiome(biomes, "terralith:mirage_isles");
+
+        warmFallback1 = resolveBiome(biomes, "terralith:ashen_savanna");
+        warmFallback2 = resolveBiome(biomes, "terralith:caldera");
+        warmFallback3 = resolveBiome(biomes, "terralith:gravel_desert");
+        deeperDarkerDeeplands = resolveBiome(biomes, "deeperdarker:deeplands");
+        deeperDarkerEchoingForest = resolveBiome(biomes, "deeperdarker:echoing_forest");
+        deeperDarkerBloomingCaverns = resolveBiome(biomes, "deeperdarker:blooming_caverns");
+        deeperDarkerOvercastColumns = resolveBiome(biomes, "deeperdarker:overcast_columns");
         oceanBiome = biomes.getHolderOrThrow(Biomes.OCEAN);
         deepOceanBiome = biomes.getHolderOrThrow(Biomes.DEEP_OCEAN);
         frozenOceanBiome = biomes.getHolderOrThrow(Biomes.FROZEN_OCEAN);
@@ -152,6 +201,7 @@ public final class IslandWorldState {
             IslandConfig config = IslandConfigLoader.loadOrCreate(worldPresetName);
             CONFIG.set(config);
             MASK.set(new IslandMask(config, worldSeed));
+            CAVE_POOL_CACHE.clear();
             refreshOuterOceanBiome();
             enabled = effectiveEnabled();
             LOGGER.info("Loaded {} island entries from {} during reload", config.entries().size(), IslandConfigLoader.activeConfigPath(worldPresetName));
@@ -267,20 +317,131 @@ public final class IslandWorldState {
 
     public static List<Holder<Biome>> fallbackLandBiomes() {
         return nonNullBiomes(
-                plainsBiome,
-                forestBiome,
-                meadowBiome,
-                beachBiome,
-                snowyPlainsBiome,
-                taigaBiome,
-                savannaBiome,
-                jungleBiome,
-                desertBiome
+                coldFallback1,
+                coldFallback2,
+                coldFallback3,
+                temperateFallback1,
+                temperateFallback2,
+                temperateFallback3,
+                warmFallback1,
+                warmFallback2,
+                warmFallback3
         );
+    }
+
+    public static List<Holder<Biome>> caveBiomePoolBiomes() {
+        if (biomeRegistry == null) {
+            return List.of();
+        }
+
+        List<Holder<Biome>> result = new ArrayList<>();
+        for (var entry : CONFIG.get().entries()) {
+            if (!entry.caveBiomePool().isEmpty()) {
+                result.addAll(CAVE_POOL_CACHE.computeIfAbsent(entry.caveBiomePool(), IslandWorldState::resolveCaveBiomePool));
+            }
+        }
+        return result.stream().distinct().toList();
+    }
+
+    public static List<Holder<Biome>> deepDarkSubBiomes() {
+        return nonNullBiomes(
+                deeperDarkerDeeplands,
+                deeperDarkerEchoingForest,
+                deeperDarkerBloomingCaverns,
+                deeperDarkerOvercastColumns
+        );
+    }
+
+    /**
+     * If the delegate resolved plain Deep Dark at this point, check it against Deeper and
+     * Darker's own temperature/humidity windows (mirrored from its biome_placement.json) and
+     * swap in the matching sub-biome directly. Points outside all four windows stay Deep Dark,
+     * same as Biolith's own placement would leave them. No-ops if D&D isn't installed (the
+     * resolved holders are all null) or the delegate isn't Deep Dark in the first place.
+     */
+    public static Holder<Biome> substituteDeepDarkSubBiome(Holder<Biome> delegate, double temperature, double humidity) {
+        if (delegate == null || !delegate.is(Biomes.DEEP_DARK)) {
+            return delegate;
+        }
+
+        for (DeepDarkSubBiome subBiome : DEEP_DARK_SUB_BIOMES) {
+            if (subBiome.matches(temperature, humidity)) {
+                Holder<Biome> resolved = subBiome.biome().get();
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+        }
+        return delegate;
+    }
+
+    private static Holder<Biome> resolveBiome(Registry<Biome> registry, String id) {
+        try {
+            ResourceKey<Biome> key = ResourceKey.create(
+                    Registries.BIOME,
+                    ResourceLocation.parse(id)
+            );
+            return registry.getHolder(key).orElse(null);
+        } catch (IllegalArgumentException exception) {
+            LOGGER.warn("Invalid biome '{}'", id);
+            return null;
+        }
     }
 
     public static Holder<Biome> beachBiome() {
         return beachBiome;
+    }
+
+    /**
+     * If the active island explicitly defines a cave biome pool, replace the delegate's
+     * cave biome with a deterministic biome selected from that pool. An empty pool means
+     * normal cave-biome generation is preserved.
+     */
+    public static Holder<Biome> caveBiomeFromPool(Holder<Biome> delegate, IslandMask.SourceInfo source, int blockX, int blockZ) {
+        if (delegate == null || source == null || source.caveBiomePool().isEmpty() || !isLikelyCaveBiome(delegate)) {
+            return null;
+        }
+
+        if (biomeRegistry == null) {
+            return null;
+        }
+
+        List<Holder<Biome>> candidates = CAVE_POOL_CACHE.computeIfAbsent(
+                source.caveBiomePool(),
+                ids -> resolveCaveBiomePool(ids)
+        );
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        return pickCavePoolBiome(candidates, source, blockX, blockZ);
+    }
+
+    private static List<Holder<Biome>> resolveCaveBiomePool(List<String> ids) {
+        Registry<Biome> registry = biomeRegistry;
+        if (registry == null) {
+            return List.of();
+        }
+
+        List<Holder<Biome>> resolved = new ArrayList<>();
+        for (String id : ids) {
+            Holder<Biome> biome = resolveBiome(registry, id);
+            if (biome != null && !resolved.contains(biome)) {
+                resolved.add(biome);
+            } else if (biome == null) {
+                LOGGER.warn("Cave biome pool entry '{}' could not be resolved; it will be ignored", id);
+            }
+        }
+        return List.copyOf(resolved);
+    }
+
+    private static Holder<Biome> pickCavePoolBiome(List<Holder<Biome>> candidates, IslandMask.SourceInfo source, int blockX, int blockZ) {
+        int patchSize = biomePatchSize(source);
+        int cellX = Math.floorDiv(blockX, patchSize);
+        int cellZ = Math.floorDiv(blockZ, patchSize);
+        long mixed = mix(source.climateSeed(), cellX * 341873128712L);
+        mixed = mix(mixed, cellZ * 132897987541L);
+        int index = Math.floorMod((int) (mix(mixed, 3L) >>> 32), candidates.size());
+        return candidates.get(index);
     }
 
     public static Holder<Biome> landBiome(double islandMask, int blockX, int blockZ) {
@@ -318,10 +479,20 @@ public final class IslandWorldState {
             return delegate;
         }
 
+        // A configured cave pool is authoritative: do not let exclude_biomes or the
+        // normal surface fallback logic replace the biome selected from that pool.
+        if (!source.caveBiomePool().isEmpty() && isLikelyCaveBiome(delegate)) {
+            return delegate;
+        }
+
         ClimateBand configured = configuredClimateBand(source);
         Holder<Biome> coast = replaceOceanDelegateOnLand(islandMask, delegate);
         if (coast != null && !isExcluded(coast, source)) {
             return coast;
+        }
+
+        if (isLikelyCaveBiome(delegate) && !isExcluded(delegate, source)) {
+            return delegate;
         }
 
         if (configured == null) {
@@ -334,9 +505,21 @@ public final class IslandWorldState {
         }
 
         List<Holder<Biome>> candidates = switch (configured) {
-            case COLD -> nonNullBiomes(snowyPlainsBiome, taigaBiome);
-            case WARM -> nonNullBiomes(savannaBiome, jungleBiome, desertBiome);
-            case TEMPERATE -> nonNullBiomes(plainsBiome, forestBiome, meadowBiome);
+            case COLD -> nonNullBiomes(
+                    coldFallback1,
+                    coldFallback2,
+                    coldFallback3
+            );
+            case WARM -> nonNullBiomes(
+                    warmFallback1,
+                    warmFallback2,
+                    warmFallback3
+            );
+            case TEMPERATE -> nonNullBiomes(
+                    temperateFallback1,
+                    temperateFallback2,
+                    temperateFallback3
+            );
         };
         Holder<Biome> fallback = pickAllowed(candidates, source, blockX, blockZ);
         if (fallback != null) {
@@ -345,9 +528,27 @@ public final class IslandWorldState {
 
         warnAllExcluded(source);
         return switch (configured) {
-            case COLD -> firstNonNull(snowyPlainsBiome, taigaBiome, plainsBiome, delegate);
-            case WARM -> firstNonNull(savannaBiome, jungleBiome, desertBiome, plainsBiome, delegate);
-            case TEMPERATE -> firstNonNull(plainsBiome, forestBiome, meadowBiome, delegate);
+            case COLD -> firstNonNull(
+                    coldFallback1,
+                    coldFallback2,
+                    coldFallback3,
+                    plainsBiome,
+                    delegate
+            );
+            case WARM -> firstNonNull(
+                    warmFallback1,
+                    warmFallback2,
+                    warmFallback3,
+                    plainsBiome,
+                    delegate
+            );
+            case TEMPERATE -> firstNonNull(
+                    temperateFallback1,
+                    temperateFallback2,
+                    temperateFallback3,
+                    plainsBiome,
+                    delegate
+            );
         };
     }
 
@@ -595,6 +796,28 @@ public final class IslandWorldState {
                 || biome.is(Biomes.DEEP_OCEAN));
     }
 
+    /**
+     * Deep-underground biomes (vanilla Deep Dark, Dripstone/Lush Caves, and mods like
+     * Deeper and Darker that add their own deep-underground biomes) have no meaningful
+     * surface climate. They must never be swapped out by the COLD/WARM/TEMPERATE fallback
+     * logic just because they don't carry a climate tag, or they get silently replaced by
+     * an island's configured-temperature fallback biome instead of generating at all.
+     */
+    private static boolean isLikelyCaveBiome(Holder<Biome> biome) {
+        if (biome == null) {
+            return false;
+        }
+        if (hasAnyTag(biome, CAVE_TAGS)) {
+            return true;
+        }
+        if (biome.is(Biomes.DEEP_DARK) || biome.is(Biomes.DRIPSTONE_CAVES) || biome.is(Biomes.LUSH_CAVES)) {
+            return true;
+        }
+        return biome.unwrapKey()
+                .map(key -> CAVE_BIOME_NAMESPACES.contains(key.location().getNamespace()))
+                .orElse(false);
+    }
+
     private static boolean hasAnyTag(Holder<Biome> biome, List<TagKey<Biome>> tags) {
         for (TagKey<Biome> tag : tags) {
             if (biome.is(tag)) {
@@ -639,6 +862,14 @@ public final class IslandWorldState {
         COLD,
         TEMPERATE,
         WARM
+    }
+
+    private record DeepDarkSubBiome(Supplier<Holder<Biome>> biome, double minTemperature, double maxTemperature,
+                                     double minHumidity, double maxHumidity) {
+        boolean matches(double temperature, double humidity) {
+            return temperature >= minTemperature && temperature <= maxTemperature
+                    && humidity >= minHumidity && humidity <= maxHumidity;
+        }
     }
 
     private static boolean loadOrCreateWorldState(Path path) {

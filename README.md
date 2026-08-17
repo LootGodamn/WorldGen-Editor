@@ -47,6 +47,8 @@ On Linux or macOS:
 
 ```bash
 ./gradlew build --no-daemon
+
+.\gradlew.bat releaseJars --no-daemon
 ```
 
 The production jars are created here:
