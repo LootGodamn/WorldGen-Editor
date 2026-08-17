@@ -46,6 +46,7 @@ public final class IslandWorldState {
     private static volatile boolean worldEnabled = true;
     private static volatile String worldPresetName;
     private static volatile Path worldStatePath;
+    private static volatile MinecraftServer currentServer;
     private static volatile Registry<Biome> biomeRegistry;
     private static volatile Holder<Biome> oceanBiome;
     private static volatile Holder<Biome> deepOceanBiome;
@@ -133,6 +134,7 @@ public final class IslandWorldState {
     }
 
     public static void loadForServer(MinecraftServer server) {
+        currentServer = server;
         worldSeed = server.overworld().getSeed();
         String detectedPreset = detectWorldPreset(server);
         if (detectedPreset != null) {
@@ -181,7 +183,42 @@ public final class IslandWorldState {
         refreshOuterOceanBiome();
         EXCLUSION_WARNINGS.clear();
         MASK.set(new IslandMask(CONFIG.get(), worldSeed));
+        refreshWorldgenFeatures(server);
         LOGGER.info("WorldGen Editor is {} for this world", enabled ? "enabled" : "disabled");
+    }
+
+    /**
+     * Rebuild Minecraft's indexed placed-feature list after the WGE config has been loaded.
+     * ChunkGenerator builds this index from BiomeSource.possibleBiomes(), so cave-biome-pool
+     * entries that were loaded after the generator was constructed would otherwise have their
+     * biome selected correctly but their placed features omitted from decoration.
+     */
+    public static void refreshWorldgenFeatures() {
+        refreshWorldgenFeatures(currentServer);
+    }
+
+    private static void refreshWorldgenFeatures(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        try {
+            /*
+             * refreshFeaturesPerStep() is exposed by NeoForge's 1.21.1 ChunkGenerator,
+             * but IslandWorldState lives in the common source set and therefore cannot
+             * directly reference that platform-only method: the common module must also
+             * compile against Fabric/Forge. Invoke it reflectively when the active
+             * platform provides it. On platforms without the method, the existing
+             * generation path remains unchanged.
+             */
+            var generator = server.overworld().getChunkSource().getGenerator();
+            var refreshMethod = generator.getClass().getMethod("refreshFeaturesPerStep");
+            refreshMethod.invoke(generator);
+            LOGGER.info("Refreshed Overworld placed-feature index after WorldGen Editor configuration load");
+        } catch (ReflectiveOperationException exception) {
+            LOGGER.debug("Overworld ChunkGenerator does not expose refreshFeaturesPerStep on this platform; skipping placed-feature index refresh");
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Could not refresh the Overworld placed-feature index after WorldGen Editor configuration load", exception);
+        }
     }
 
     private static String detectWorldPreset(MinecraftServer server) {
@@ -204,6 +241,7 @@ public final class IslandWorldState {
             CAVE_POOL_CACHE.clear();
             refreshOuterOceanBiome();
             enabled = effectiveEnabled();
+            refreshWorldgenFeatures();
             LOGGER.info("Loaded {} island entries from {} during reload", config.entries().size(), IslandConfigLoader.activeConfigPath(worldPresetName));
             return true;
         } catch (IslandConfigException exception) {
@@ -397,8 +435,27 @@ public final class IslandWorldState {
      * cave biome with a deterministic biome selected from that pool. An empty pool means
      * normal cave-biome generation is preserved.
      */
-    public static Holder<Biome> caveBiomeFromPool(Holder<Biome> delegate, IslandMask.SourceInfo source, int blockX, int blockZ) {
-        if (delegate == null || source == null || source.caveBiomePool().isEmpty() || !isLikelyCaveBiome(delegate)) {
+    public static Holder<Biome> caveBiomeFromPool(
+            Holder<Biome> delegate,
+            IslandMask.SourceInfo source,
+            int blockX,
+            int blockZ
+    ) {
+        if (delegate == null || source == null || source.caveBiomePool().isEmpty()) {
+            return null;
+        }
+
+        /*
+         * The pool replaces a biome only when the underlying biome source has selected a
+         * cave/underground biome. Do not use an arbitrary Y threshold here: vanilla and
+         * modded cave biomes can occupy different vertical ranges, and the delegate's
+         * biome selection is the authoritative indication that this position belongs to
+         * cave-biome generation.
+         *
+         * Do not replace ocean-like biomes here: ocean selection is handled separately
+         * by the island mask and must retain its existing behavior.
+         */
+        if (isOceanBiome(delegate) || !isLikelyCaveBiome(delegate)) {
             return null;
         }
 
@@ -408,7 +465,7 @@ public final class IslandWorldState {
 
         List<Holder<Biome>> candidates = CAVE_POOL_CACHE.computeIfAbsent(
                 source.caveBiomePool(),
-                ids -> resolveCaveBiomePool(ids)
+                IslandWorldState::resolveCaveBiomePool
         );
         if (candidates.isEmpty()) {
             return null;
@@ -814,7 +871,15 @@ public final class IslandWorldState {
             return true;
         }
         return biome.unwrapKey()
-                .map(key -> CAVE_BIOME_NAMESPACES.contains(key.location().getNamespace()))
+                .map(key -> {
+                    String namespace = key.location().getNamespace();
+                    String path = key.location().getPath();
+                    if (CAVE_BIOME_NAMESPACES.contains(namespace)) {
+                        return true;
+                    }
+                    // Terralith's cave biomes use the terralith:cave/* namespace path.
+                    return namespace.equals("terralith") && path.startsWith("cave/");
+                })
                 .orElse(false);
     }
 

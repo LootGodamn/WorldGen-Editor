@@ -248,8 +248,10 @@ This creates one roughly round island around coordinates `0, 0`.
 - `temperature` controls climate-biome selection for this entry. Supported values are `standard`, `cold`, `temperate`, and `warm`. The aliases `auto`, `vanilla`, `standart`, and the old field name `climate` also work.
 - `biome_patch_size` controls how large fallback-biome patches are, in blocks. Default is `512`. Smaller values create visible biome mosaic patches; larger values make islands and archipelagos more consistent.
 - `exclude_biomes` prevents specific vanilla/modded biomes from being selected for this entry. Use biome ids like `minecraft:desert` or tags like `#minecraft:is_badlands`.
-- `cave_biome_pool` optionally overrides cave-biome selection for this entry. If omitted or empty, cave biomes are generated normally by the delegate biome source. If specified, whenever the delegate resolves a cave biome, WGE selects one of the biome ids in this pool instead. The pool is per island entry and does not affect surface biome selection.
+- `cave_biome_pool` optionally overrides underground/cave-biome selection for this entry. If omitted or empty, cave biomes are generated normally by the delegate biome source. If specified, WGE uses one of the biome ids in this pool for recognized cave biomes and for underground positions at Y `<= 0`, so the pool does not depend on the delegate exposing a common cave tag. The selected biome remains the actual biome used by chunk generation, so its biome generation settings (including carvers and placed features) are used by Minecraft. The pool is per island entry and does not affect surface biome selection.
   Example: `"cave_biome_pool": ["minecraft:deep_dark", "terralith:cave/crystal_caves"]`.
+
+  Some mods design their cave biomes for a custom dimension whose terrain uses that mod's own blocks. For Deeper and Darker, WGE includes compatibility tag additions so its cave carvers and sculk vegetation features can also operate on the Overworld stone/deepslate terrain used by WGE.
 
 Most of the time, you only need `type`, `x`, `z`, `radius`, `stretch_x`, `stretch_z`, `rotation`, `shape_power`, and `roughness`.
 

@@ -13,6 +13,8 @@ import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Climate;
 import org.wodichka.worldgen_editor.Worldgen_editor;
 
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class IslandBiomeSource extends BiomeSource {
@@ -71,6 +73,18 @@ public final class IslandBiomeSource extends BiomeSource {
                 .distinct();
     }
 
+    /**
+     * BiomeSource normally memoizes possibleBiomes() in its superclass. WGE's cave-biome
+     * pool is loaded from the world configuration after the BiomeSource itself has been
+     * constructed, so the inherited memoized set can be missing pool biomes when the
+     * ChunkGenerator builds its placed-feature index. Recompute from collectPossibleBiomes()
+     * so a subsequent refreshFeaturesPerStep() sees the currently configured pool.
+     */
+    @Override
+    public Set<Holder<Biome>> possibleBiomes() {
+        return collectPossibleBiomes().collect(Collectors.toUnmodifiableSet());
+    }
+
     @Override
     public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ, Climate.Sampler sampler) {
         IslandMask mask = IslandWorldState.mask();
@@ -84,17 +98,23 @@ public final class IslandBiomeSource extends BiomeSource {
         }
 
         int blockX = QuartPos.toBlock(quartX);
+        int blockY = QuartPos.toBlock(quartY);
         int blockZ = QuartPos.toBlock(quartZ);
         IslandMask.SampleInfo sample = mask.sampleInfo(blockX, blockZ);
         Holder<Biome> delegateBiome = delegate.getNoiseBiome(quartX, quartY, quartZ, sampler);
-        Holder<Biome> pooledCaveBiome = IslandWorldState.caveBiomeFromPool(delegateBiome,
-                sample.landSource() != null ? sample.landSource() : sample.archipelagoSource(),
-                blockX, blockZ);
+        IslandMask.SourceInfo caveSource = sample.landSource() != null
+                ? sample.landSource()
+                : sample.archipelagoSource();
+        Holder<Biome> pooledCaveBiome = IslandWorldState.caveBiomeFromPool(
+                delegateBiome, caveSource, blockX, blockZ);
         if (pooledCaveBiome != null) {
-            delegateBiome = pooledCaveBiome;
-        } else {
-            delegateBiome = IslandWorldState.substituteDeepDarkSubBiome(delegateBiome, temperature, humidity);
+            // A configured cave pool is authoritative. Return the selected biome before
+            // WGE's surface/ocean replacement logic can substitute it. Minecraft will then
+            // use this biome's own generation settings, including its carvers and placed features.
+            return pooledCaveBiome;
         }
+
+        delegateBiome = IslandWorldState.substituteDeepDarkSubBiome(delegateBiome, temperature, humidity);
         if (sample.value() < IslandTerrainHooks.FULL_OCEAN_MASK) {
             if (sample.oceanSource() == null && sample.archipelagoSource() == null && sample.landSource() == null) {
                 Holder<Biome> outerOcean = IslandWorldState.outerOceanBiome();
