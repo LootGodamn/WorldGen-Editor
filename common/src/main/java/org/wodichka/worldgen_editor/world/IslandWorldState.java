@@ -586,23 +586,21 @@ public final class IslandWorldState {
         warnAllExcluded(source);
         return switch (configured) {
             case COLD -> firstNonNull(
-                    coldFallback1,
-                    coldFallback2,
-                    coldFallback3,
-                    plainsBiome,
+                    snowyPlainsBiome,
+                    taigaBiome,
+                    desertBiome,
                     delegate
             );
             case WARM -> firstNonNull(
-                    warmFallback1,
-                    warmFallback2,
+                    savannaBiome,
+                    jungleBiome,
                     warmFallback3,
                     plainsBiome,
                     delegate
             );
             case TEMPERATE -> firstNonNull(
-                    temperateFallback1,
-                    temperateFallback2,
-                    temperateFallback3,
+                    meadowBiome,
+                    forestBiome,
                     plainsBiome,
                     delegate
             );
